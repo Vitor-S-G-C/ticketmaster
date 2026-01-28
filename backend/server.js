@@ -46,4 +46,4 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(3001, () => console.log('Backend rodando na porta 3001'));
+server.listen(3001, '0.0.0.0', () => console.log('Backend rodando na porta 3001 - Disponível na rede local'));

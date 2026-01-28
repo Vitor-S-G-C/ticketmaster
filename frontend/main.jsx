@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import io from 'socket.io-client';
 import './style.css';
 
-const socket = io('http://localhost:3001');
+const socket = io('http://192.168.2.6:3001');
 
 function App() {
   const [userType, setUserType] = useState(null);
@@ -11,12 +11,38 @@ function App() {
   const [msg, setMsg] = useState('');
   const [tickets, setTickets] = useState([]);
   const [adminMessages, setAdminMessages] = useState({});
+  const [ratingData, setRatingData] = useState({});
+
+  // Função para tocar som de notificação
+  const playNotificationSound = () => {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  };
 
   useEffect(() => {
     socket.on('ticketAssigned', setTicketId);
-    socket.on('newTicket', t => setTickets(prev => [...prev, t]));
+    socket.on('newTicket', t => {
+      setTickets(prev => [...prev, t]);
+      // Tocar som quando novo ticket chega (apenas para admin)
+      if (userType === 'admin') {
+        playNotificationSound();
+      }
+    });
     socket.on('updateTicket', t => setTickets(prev => prev.map(p => p.id === t.id ? t : p)));
-  }, []);
+  }, [userType]);
 
   const sendMessage = () => {
     if (msg.trim()) {
@@ -30,6 +56,18 @@ function App() {
     if (message && message.trim()) {
       socket.emit('sendMessage', { ticketId, message, sender: 'admin' });
       setAdminMessages({ ...adminMessages, [ticketId]: '' });
+    }
+  };
+
+  const rateTicket = (ticketId) => {
+    const data = ratingData[ticketId];
+    if (data && data.rating) {
+      socket.emit('rateTicket', { 
+        ticketId, 
+        rating: data.rating, 
+        note: data.note || 'Atendimento finalizado' 
+      });
+      setRatingData({ ...ratingData, [ticketId]: {} });
     }
   };
 
@@ -173,22 +211,53 @@ function App() {
 
                 {!t.rating && (
                   <div className="rating-section">
+                    <h4 style={{marginBottom: '10px'}}>Avaliar Atendimento:</h4>
+                    <div className="star-rating">
+                      {[1, 2, 3, 4, 5].map(star => (
+                        <span
+                          key={star}
+                          className={`star ${(ratingData[t.id]?.rating || 0) >= star ? 'star-filled' : ''}`}
+                          onClick={() => setRatingData({
+                            ...ratingData,
+                            [t.id]: { ...ratingData[t.id], rating: star }
+                          })}
+                        >
+                          ⭐
+                        </span>
+                      ))}
+                    </div>
+                    <textarea
+                      className="rating-textarea"
+                      placeholder="Comentário sobre o atendimento (opcional)..."
+                      value={ratingData[t.id]?.note || ''}
+                      onChange={(e) => setRatingData({
+                        ...ratingData,
+                        [t.id]: { ...ratingData[t.id], note: e.target.value }
+                      })}
+                    />
                     <button
                       className="btn-rate"
-                      onClick={() => socket.emit('rateTicket', { 
-                        ticketId: t.id, 
-                        rating: 5, 
-                        note: 'Atendimento finalizado' 
-                      })}
+                      onClick={() => rateTicket(t.id)}
+                      disabled={!ratingData[t.id]?.rating}
                     >
-                      ✅ Finalizar e Avaliar 5⭐
+                      ✅ Finalizar Atendimento
                     </button>
                   </div>
                 )}
 
                 {t.rating && (
-                  <div style={{marginTop: '10px', color: '#51cf66'}}>
-                    <strong>Nota:</strong> {t.note}
+                  <div style={{marginTop: '10px', padding: '10px', background: '#e8f5e9', borderRadius: '8px'}}>
+                    <div style={{color: '#2e7d32', fontWeight: 'bold', marginBottom: '5px'}}>
+                      ✅ Atendimento Finalizado
+                    </div>
+                    <div style={{color: '#ffa726'}}>
+                      {'⭐'.repeat(t.rating)} ({t.rating}/5)
+                    </div>
+                    {t.note && (
+                      <div style={{marginTop: '5px', color: '#666', fontSize: '0.9em'}}>
+                        <strong>Comentário:</strong> {t.note}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
